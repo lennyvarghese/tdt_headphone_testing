@@ -1,5 +1,5 @@
 function headphone_test(testID, sampleRate, channel, hb7Setting, stimType, ...
-                        nReps, varName)
+                        nReps, varName, tdtScale)
 % headphone_test(testID, channel, hb7Setting, stimType, varName, nReps)
 % helper function to record ear simulator output and TDT RP2.1
 %
@@ -41,6 +41,9 @@ function headphone_test(testID, sampleRate, channel, hb7Setting, stimType, ...
 % varname: the name of the variable in the mat file specified. Not
 %                     unless stimType is a mat filename (set to '' when using
 %                     "tones", "click", "noise", or "none", or do not specify).
+% tdtScale: a scaling factor to apply to use more of the dynamic range of the
+%           RP2.1 when using a custom stimulus (path_to_matfile and varname);
+%           makes sense assuming custom stimulus is limited to [-1 and 1]
 
 assert(channel == 1 || channel == 2);
 
@@ -49,6 +52,9 @@ if nargin == 4
 end
 if nargin == 5
     varName = '';
+end
+if nargin == 6
+    tdtScale=1;
 end
 
 f1 = figure(999);
@@ -70,6 +76,7 @@ else
     otherChannel = 1;
 end;
 RP.SetTagVal('otherChannel', otherChannel);
+RP.SetTagVal('tdtScale', tdtScale);
 RP.ZeroTag('headphoneInput');
 RP.ZeroTag('couplerOutput');
 RP.ZeroTag('testSignal');
@@ -124,12 +131,13 @@ else
     if size(x, 2) > 1
         x = x(:, channel);
     end
-    scaleFac = 1 / rms(x);
-    x = x * scaleFac;
-    infoStr = sprintf(['Original RMS (V): %2.3e\nNew RMS (V): ',...
-                       '%2.3e\nNew peak-to-peak (V): %2.3e'],...
-                       1/scaleFac, 1.0*db2mag(hb7Setting),...
-                       max(abs(x))*db2mag(hb7Setting));
+
+    infoStr = sprintf(['RMS (Matlab): %2.5f\n', ...
+                       'ScaleFac*RMS (V): %2.5f\nHB7 Scaled RMS (V): ',...
+                       '%2.5f\nNew peak-to-peak (V): %2.5f'],...
+                       rms(x), tdtScale*rms(x), ...
+                       tdtScale*rms(x)*db2mag(hb7Setting),...
+                       max(tdtScale*abs(x))*db2mag(hb7Setting));
     ButtonName = questdlg(infoStr, ...
                          'Verify', ...
                          'OK', 'Abort', 'Abort');
@@ -167,8 +175,10 @@ for fi = 1:size(testSignal,1)
     fprintf(' Retrieving data... \n')
     headphoneInput(fi, :) = db2mag(hb7Setting) * ...
         RP.ReadTagVEX('headphoneInput', 0, nSamps, 'F32', 'F32', 1);
-    couplerOutput(fi, :) = RP.ReadTagVEX('couplerOutput', 0, nSamps, ...
+    % remove DC offset from analog input:
+    rawSignalIn = RP.ReadTagVEX('couplerOutput', 0, nSamps, ...
         'F32', 'F32', 1);
+    couplerOutput(fi, :) = rawSignalIn - mean(rawSignalIn);
     
     RP.ZeroTag('headphoneInput');
     RP.ZeroTag('couplerOutput');
@@ -178,10 +188,12 @@ end
 t = 0:1/sampleRate:((nSamps-1) / sampleRate);
 if exist('freqs', 'var') ~= 1
     save([testID '_' stimType '.mat'], 't', 'hb7Setting', ...
-        'headphoneInput', 'couplerOutput', 'testSignal', '-v7');
+        'headphoneInput', 'couplerOutput', 'testSignal', ...
+        'tdtScale', '-v7');
 else
     save([testID '_' stimType '.mat'], 't', 'hb7Setting',...
-        'headphoneInput', 'couplerOutput', 'testSignal', 'freqs', '-v7');
+        'headphoneInput', 'couplerOutput', 'testSignal', 'freqs',...
+        'tdtScale', '-v7');
 end
 fprintf('data saved as: %s\n', fullfile(pwd, [testID '_' stimType '.mat']));
 RP.Halt;
