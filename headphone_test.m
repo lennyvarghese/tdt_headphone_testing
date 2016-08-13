@@ -69,6 +69,9 @@ elseif round(sampleRate) == 24414
 end
 RP.Run();
 
+%output figure;
+figure(31415)
+
 RP.SetTagVal('channel', channel);
 if channel == 1
     otherChannel = 2;
@@ -88,7 +91,14 @@ while curSample ~= 0
 end
 
 t = 0:1/sampleRate:(1-1/sampleRate);
-if strcmpi(stimType, 'tones')
+if isnumeric(stimType)
+    freqs = repmat(stimType, 1, nReps);
+    testSignal = zeros([length(freqs), length(t)], 'single');
+    for fi = 1:length(freqs)
+        testSignal(fi, :) = single(2*sin(2*pi*t*freqs(fi))/sqrt(2));
+    end
+    stimType = strrep(sprintf('tone_%.2fHz', stimType),'.','p');
+elseif strcmpi(stimType, 'tones')
     freqs = logspace(log10(20), log10(20000), nReps);
     testSignal = zeros([length(freqs), length(t)], 'single');
     for fi = 1:length(freqs)
@@ -125,12 +135,13 @@ elseif strcmpi(stimType, 'noise')
     end
 elseif strcmpi(stimType, 'none')
     testSignal = zeros([nReps, length(t)], 'single');
-else
+elseif exist(stimType, 2)
     s = load(stimType, varName);
     x = getfield(s, varName);
     if size(x, 2) > 1
         x = x(:, channel);
     end
+    t = 0:1/sampleRate:(length(x)-1)/sampleRate;
 
     infoStr = sprintf(['RMS (Matlab): %2.5f\n', ...
                        'ScaleFac*RMS (V): %2.5f\nHB7 Scaled RMS (V): ',...
@@ -179,13 +190,17 @@ for fi = 1:size(testSignal,1)
     rawSignalIn = RP.ReadTagVEX('couplerOutput', 0, nSamps, ...
         'F32', 'F32', 1);
     couplerOutput(fi, :) = rawSignalIn - mean(rawSignalIn);
+    figure(31415)
+    plot(t, couplerOutput(fi, :));
+    ylabel('Volts')
+    xlabel('time (s)')
+    fprintf('RMS (V): %3.5f\n', sqrt(mean(couplerOutput(fi, :).^2)))
     
     RP.ZeroTag('headphoneInput');
     RP.ZeroTag('couplerOutput');
     RP.ZeroTag('testSignal');
 end
 
-t = 0:1/sampleRate:((nSamps-1) / sampleRate);
 if exist('freqs', 'var') ~= 1
     save([testID '_' stimType '.mat'], 't', 'hb7Setting', ...
         'headphoneInput', 'couplerOutput', 'testSignal', ...
